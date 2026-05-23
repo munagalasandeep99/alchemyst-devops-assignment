@@ -13,3 +13,4 @@ terraform.tfvars
 id_rsa
 id_rsa.pub
 a.sh
+code.txt
