@@ -1,0 +1,17 @@
+# Copy this file to terraform.tfvars and fill in your values.
+# terraform.tfvars is git-ignored by default – do NOT commit real credentials.
+
+project         = "quickstart"
+aws_region      = "us-east-1"
+
+# Tighten to your home/office IP for security: e.g. "203.0.113.42/32"
+ssh_allowed_cidr = "0.0.0.0/0"
+
+# Path to the public key that will be installed on all EC2 instances
+public_key_path = "~/.ssh/id_rsa.pub"
+
+# Instance types (t3.micro is free-tier; bump inference if model is slow)
+engine_instance_type    = "t3.small"
+inference_instance_type = "t3.medium"
+caller_instance_type    = "t3.small"
+gateway_instance_type   = "t3.micro"
