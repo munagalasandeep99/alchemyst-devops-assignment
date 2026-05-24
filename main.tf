@@ -364,9 +364,9 @@ resource "aws_instance" "inference" {
 
     ENGINE_IP="${aws_instance.engine.private_ip}"
 
-    # Install deps (Python 3.11 explicit)
-    dnf install -y python3.11 python3.11-pip git
-    alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
+    # Install deps (Python 3.12 explicit)
+    dnf install -y python3.12 python3.12-pip git
+    alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1
 
     # Clone repo
     git clone https://github.com/Alchemyst-ai/hiring.git /opt/hiring
@@ -374,9 +374,9 @@ resource "aws_instance" "inference" {
     cd /opt/hiring/may-2026/devops/quickstart/workers/inference-worker
 
     # Install CPU torch (avoids 2GB CUDA download on CPU-only instance)
-    pip3.11 cache purge
-    pip3.11 install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
-    pip3.11 install --no-cache-dir iii-sdk==0.11.0 watchfiles transformers gguf accelerate
+    pip3.12 cache purge
+    pip3.12 install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+    pip3.12 install --no-cache-dir iii-sdk==0.11.0 watchfiles transformers gguf accelerate
 
     # Systemd service — heredoc unquoted so $ENGINE_IP expands from bash var set above
     cat > /etc/systemd/system/iii-inference.service <<SVC
@@ -388,7 +388,7 @@ After=network.target
 User=root
 WorkingDirectory=/opt/hiring/may-2026/devops/quickstart/workers/inference-worker
 Environment=III_URL=ws://$ENGINE_IP:49134
-ExecStart=/usr/bin/python3.11 inference_worker.py
+ExecStart=/usr/bin/python3.12 inference_worker.py
 Restart=always
 RestartSec=10
 
@@ -427,8 +427,8 @@ resource "aws_instance" "caller" {
     ENGINE_IP="${aws_instance.engine.private_ip}"
 
     # Install git
-    dnf install -y git python3.11
-    alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
+    dnf install -y git python3.12
+    alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1
 
     # Install nvm + Node 20
     curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
