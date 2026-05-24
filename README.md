@@ -191,10 +191,7 @@ curl -X POST http://$(terraform output -raw gateway_public_ip)/v1/chat/completio
 Use the gateway as a jump host (bastion) to reach the private VMs. Terraform outputs the exact SSH commands:
 
 ```bash
-terraform output ssh_gateway
-terraform output ssh_engine_via_gateway
-terraform output ssh_inference_via_gateway
-terraform output ssh_caller_via_gateway
+terraform output
 ```
 
 Or manually:
@@ -273,11 +270,11 @@ sudo journalctl -u iii-engine -f
 ssh -i ~/.ssh/id_rsa -J ec2-user@<gateway_ip> ec2-user@<inference_private_ip>
 
 # Check if Python packages are installed
-pip3.11 show iii-sdk transformers
+pip3.12 show iii-sdk transformers
 
 # If not, install manually
-sudo pip3.11 install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
-sudo pip3.11 install --no-cache-dir iii-sdk==0.11.0 watchfiles transformers gguf accelerate
+sudo pip3.12 install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+sudo pip3.12 install --no-cache-dir iii-sdk==0.11.0 watchfiles transformers gguf accelerate
 
 # Check the worker code is present
 ls /opt/hiring/may-2026/devops/quickstart/workers/inference-worker/
@@ -287,7 +284,7 @@ sudo git clone https://github.com/Alchemyst-ai/hiring.git /opt/hiring
 
 # Run the worker manually to see errors in real time
 export III_URL=ws://<engine_private_ip>:49134
-sudo -E python3.11 /opt/hiring/may-2026/devops/quickstart/workers/inference-worker/inference_worker.py
+sudo -E python3.12 /opt/hiring/may-2026/devops/quickstart/workers/inference-worker/inference_worker.py
 
 # Once working, restart the systemd service
 sudo systemctl restart iii-inference
