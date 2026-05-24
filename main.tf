@@ -271,7 +271,7 @@ resource "aws_instance" "engine" {
     # Install git
     dnf install -y git
 
-    # Install iii engine (fix: was "curl -fsSL curl -fsSL ..." duplicate typo)
+    # Install iii engine
     curl -fsSL https://install.iii.dev/iii/main/install.sh | sh
     export PATH=$PATH:/root/.local/bin
 
@@ -373,15 +373,6 @@ resource "aws_instance" "inference" {
 
     cd /opt/hiring/may-2026/devops/quickstart/workers/inference-worker
 
-    # Fix inference_worker.py to return a dict instead of bare string
-    python3 - <<'PYFIX'
-import re
-path = 'inference_worker.py'
-content = open(path).read()
-content = content.replace('return result', 'return {"result": result}')
-open(path, 'w').write(content)
-PYFIX
-
     # Install CPU torch (avoids 2GB CUDA download on CPU-only instance)
     pip3.11 cache purge
     pip3.11 install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
@@ -450,22 +441,6 @@ resource "aws_instance" "caller" {
     git clone https://github.com/Alchemyst-ai/hiring.git /opt/hiring
 
     cd /opt/hiring/may-2026/devops/quickstart/workers/caller-worker
-
-    # Fix timeouts in worker.ts
-    python3 - <<'PYFIX'
-path = 'src/worker.ts'
-content = open(path).read()
-content = content.replace(
-    "function_id: 'inference::run_inference',\n      payload,\n    });",
-    "function_id: 'inference::run_inference',\n      payload,\n      timeoutMs: 120000,\n    });"
-)
-content = content.replace(
-    "function_id: 'inference::get_response',\n      payload: payload.body,\n    });",
-    "function_id: 'inference::get_response',\n      payload: payload.body,\n      timeoutMs: 120000,\n    });"
-)
-open(path, 'w').write(content)
-print("Patched worker.ts")
-PYFIX
 
     npm install
 
