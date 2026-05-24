@@ -1,11 +1,4 @@
-###############################################################################
-# Alchemyst-ai quickstart – AWS deployment
-# 4-VM topology:
-#   vm-engine        (private) – iii engine (WebSocket :49134, REST :3111)
-#   vm-inference     (private) – Python inference-worker
-#   vm-caller        (private) – TypeScript caller-worker
-#   vm-gateway       (public)  – Nginx reverse-proxy / API gateway
-###############################################################################
+
 
 terraform {
   required_version = ">= 1.6"
@@ -21,9 +14,6 @@ provider "aws" {
   region = var.aws_region
 }
 
-###############################################################################
-# Data sources
-###############################################################################
 
 data "aws_availability_zones" "available" {
   state = "available"
@@ -45,9 +35,7 @@ data "aws_ami" "al2023" {
   }
 }
 
-###############################################################################
-# VPC
-###############################################################################
+
 
 resource "aws_vpc" "main" {
   cidr_block           = var.vpc_cidr
@@ -57,9 +45,6 @@ resource "aws_vpc" "main" {
   tags = merge(local.common_tags, { Name = "${var.project}-vpc" })
 }
 
-###############################################################################
-# Subnets
-###############################################################################
 
 resource "aws_subnet" "private" {
   vpc_id            = aws_vpc.main.id
@@ -78,18 +63,12 @@ resource "aws_subnet" "public" {
   tags = merge(local.common_tags, { Name = "${var.project}-public" })
 }
 
-###############################################################################
-# Internet Gateway
-###############################################################################
 
 resource "aws_internet_gateway" "igw" {
   vpc_id = aws_vpc.main.id
   tags   = merge(local.common_tags, { Name = "${var.project}-igw" })
 }
 
-###############################################################################
-# NAT Gateway
-###############################################################################
 
 resource "aws_eip" "nat" {
   domain = "vpc"
@@ -103,9 +82,6 @@ resource "aws_nat_gateway" "nat" {
   tags          = merge(local.common_tags, { Name = "${var.project}-nat" })
 }
 
-###############################################################################
-# Route tables
-###############################################################################
 
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
@@ -139,9 +115,6 @@ resource "aws_route_table_association" "private" {
   route_table_id = aws_route_table.private.id
 }
 
-###############################################################################
-# Security Groups
-###############################################################################
 
 resource "aws_security_group" "gateway" {
   name        = "${var.project}-gateway-sg"
@@ -244,9 +217,7 @@ resource "aws_security_group" "workers" {
   tags = merge(local.common_tags, { Name = "${var.project}-workers-sg" })
 }
 
-###############################################################################
-# Key Pair
-###############################################################################
+
 
 resource "aws_key_pair" "deployer" {
   key_name   = "${var.project}-key"
@@ -254,9 +225,6 @@ resource "aws_key_pair" "deployer" {
   tags       = local.common_tags
 }
 
-###############################################################################
-# IAM Role for SSM
-###############################################################################
 
 resource "aws_iam_role" "ssm_role" {
   name = "${var.project}-ssm-role"
@@ -285,9 +253,6 @@ resource "aws_iam_instance_profile" "ssm_profile" {
   role = aws_iam_role.ssm_role.name
 }
 
-###############################################################################
-# EC2 Instances
-###############################################################################
 
 # --- Engine VM (private) ---
 resource "aws_instance" "engine" {
