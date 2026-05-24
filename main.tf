@@ -1,5 +1,3 @@
-
-
 terraform {
   required_version = ">= 1.6"
   required_providers {
@@ -13,7 +11,6 @@ terraform {
 provider "aws" {
   region = var.aws_region
 }
-
 
 data "aws_availability_zones" "available" {
   state = "available"
@@ -35,8 +32,6 @@ data "aws_ami" "al2023" {
   }
 }
 
-
-
 resource "aws_vpc" "main" {
   cidr_block           = var.vpc_cidr
   enable_dns_support   = true
@@ -44,7 +39,6 @@ resource "aws_vpc" "main" {
 
   tags = merge(local.common_tags, { Name = "${var.project}-vpc" })
 }
-
 
 resource "aws_subnet" "private" {
   vpc_id            = aws_vpc.main.id
@@ -63,16 +57,15 @@ resource "aws_subnet" "public" {
   tags = merge(local.common_tags, { Name = "${var.project}-public" })
 }
 
-
 resource "aws_internet_gateway" "igw" {
   vpc_id = aws_vpc.main.id
   tags   = merge(local.common_tags, { Name = "${var.project}-igw" })
 }
 
-
 resource "aws_eip" "nat" {
-  domain = "vpc"
-  tags   = merge(local.common_tags, { Name = "${var.project}-nat-eip" })
+  domain     = "vpc"
+  depends_on = [aws_internet_gateway.igw]
+  tags       = merge(local.common_tags, { Name = "${var.project}-nat-eip" })
 }
 
 resource "aws_nat_gateway" "nat" {
@@ -81,7 +74,6 @@ resource "aws_nat_gateway" "nat" {
   depends_on    = [aws_internet_gateway.igw]
   tags          = merge(local.common_tags, { Name = "${var.project}-nat" })
 }
-
 
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
@@ -114,7 +106,6 @@ resource "aws_route_table_association" "private" {
   subnet_id      = aws_subnet.private.id
   route_table_id = aws_route_table.private.id
 }
-
 
 resource "aws_security_group" "gateway" {
   name        = "${var.project}-gateway-sg"
@@ -157,14 +148,22 @@ resource "aws_security_group" "gateway" {
 
 resource "aws_security_group" "engine" {
   name        = "${var.project}-engine-sg"
-  description = "iii engine: Fully open to internal VPC traffic"
+  description = "iii engine: internal VPC traffic on required ports"
   vpc_id      = aws_vpc.main.id
 
   ingress {
-    description = "Allow all internal VPC communication"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
+    description = "iii WebSocket port from workers"
+    from_port   = 49134
+    to_port     = 49134
+    protocol    = "tcp"
+    cidr_blocks = [var.private_subnet_cidr]
+  }
+
+  ingress {
+    description = "iii HTTP REST port from gateway"
+    from_port   = 3111
+    to_port     = 3111
+    protocol    = "tcp"
     cidr_blocks = [var.private_subnet_cidr, var.public_subnet_cidr]
   }
 
@@ -188,15 +187,15 @@ resource "aws_security_group" "engine" {
 
 resource "aws_security_group" "workers" {
   name        = "${var.project}-workers-sg"
-  description = "Worker VMs: Fully open to internal VPC traffic"
+  description = "Worker VMs: internal VPC traffic on required ports"
   vpc_id      = aws_vpc.main.id
 
   ingress {
-    description = "Allow all internal VPC communication"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = [var.private_subnet_cidr, var.public_subnet_cidr]
+    description = "iii WebSocket connection to engine"
+    from_port   = 49134
+    to_port     = 49134
+    protocol    = "tcp"
+    cidr_blocks = [var.private_subnet_cidr]
   }
 
   ingress {
@@ -217,14 +216,11 @@ resource "aws_security_group" "workers" {
   tags = merge(local.common_tags, { Name = "${var.project}-workers-sg" })
 }
 
-
-
 resource "aws_key_pair" "deployer" {
   key_name   = "${var.project}-key"
   public_key = file(var.public_key_path)
   tags       = local.common_tags
 }
-
 
 resource "aws_iam_role" "ssm_role" {
   name = "${var.project}-ssm-role"
@@ -253,7 +249,6 @@ resource "aws_iam_instance_profile" "ssm_profile" {
   role = aws_iam_role.ssm_role.name
 }
 
-
 # --- Engine VM (private) ---
 resource "aws_instance" "engine" {
   ami                    = data.aws_ami.al2023.id
@@ -270,13 +265,14 @@ resource "aws_instance" "engine" {
 
   user_data = <<-EOF
     #!/bin/bash
-    set -e
+    set -euxo pipefail
+    exec > /var/log/user-data.log 2>&1
 
     # Install git
     dnf install -y git
 
-    # Install iii engine
-    curl -fsSL curl -fsSL https://install.iii.dev/iii/main/install.sh | sh
+    # Install iii engine (fix: was "curl -fsSL curl -fsSL ..." duplicate typo)
+    curl -fsSL https://install.iii.dev/iii/main/install.sh | sh
     export PATH=$PATH:/root/.local/bin
 
     # Init iii project
@@ -363,12 +359,14 @@ resource "aws_instance" "inference" {
 
   user_data = <<-EOF
     #!/bin/bash
-    set -e
+    set -euxo pipefail
+    exec > /var/log/user-data.log 2>&1
 
     ENGINE_IP="${aws_instance.engine.private_ip}"
 
-    # Install deps
-    dnf install -y python3 python3-pip git
+    # Install deps (Python 3.11 explicit)
+    dnf install -y python3.11 python3.11-pip git
+    alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
 
     # Clone repo
     git clone https://github.com/Alchemyst-ai/hiring.git /opt/hiring
@@ -385,11 +383,11 @@ open(path, 'w').write(content)
 PYFIX
 
     # Install CPU torch (avoids 2GB CUDA download on CPU-only instance)
-    pip3 cache purge
-    pip3 install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
-    pip3 install --no-cache-dir iii-sdk==0.11.0 watchfiles transformers gguf accelerate
+    pip3.11 cache purge
+    pip3.11 install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+    pip3.11 install --no-cache-dir iii-sdk==0.11.0 watchfiles transformers gguf accelerate
 
-    # Systemd service
+    # Systemd service — heredoc unquoted so $ENGINE_IP expands from bash var set above
     cat > /etc/systemd/system/iii-inference.service <<SVC
 [Unit]
 Description=iii Inference Worker
@@ -399,7 +397,7 @@ After=network.target
 User=root
 WorkingDirectory=/opt/hiring/may-2026/devops/quickstart/workers/inference-worker
 Environment=III_URL=ws://$ENGINE_IP:49134
-ExecStart=/usr/bin/python3 inference_worker.py
+ExecStart=/usr/bin/python3.11 inference_worker.py
 Restart=always
 RestartSec=10
 
@@ -432,12 +430,14 @@ resource "aws_instance" "caller" {
 
   user_data = <<-EOF
     #!/bin/bash
-    set -e
+    set -euxo pipefail
+    exec > /var/log/user-data.log 2>&1
 
     ENGINE_IP="${aws_instance.engine.private_ip}"
 
     # Install git
-    dnf install -y git
+    dnf install -y git python3.11
+    alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
 
     # Install nvm + Node 20
     curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
@@ -469,10 +469,12 @@ PYFIX
 
     npm install
 
-    NODE_BIN=$(source /root/.nvm/nvm.sh && which node)
-    NPX_BIN=$(source /root/.nvm/nvm.sh && which npx)
+    # Resolve the actual node/npx paths dynamically to avoid hardcoding a patch version
+    NODE_BIN="$(source /root/.nvm/nvm.sh && which node)"
+    NPX_BIN="$(source /root/.nvm/nvm.sh && which npx)"
+    NODE_DIR="$(dirname "$NODE_BIN")"
 
-    # Systemd service
+    # Systemd service — heredoc unquoted so $ENGINE_IP, $NPX_BIN, $NODE_DIR expand from bash vars
     cat > /etc/systemd/system/iii-caller.service <<SVC
 [Unit]
 Description=iii Caller Worker
@@ -482,7 +484,7 @@ After=network.target
 User=root
 WorkingDirectory=/opt/hiring/may-2026/devops/quickstart/workers/caller-worker
 Environment=III_URL=ws://$ENGINE_IP:49134
-Environment=PATH=/root/.nvm/versions/node/v20.20.2/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=$NODE_DIR:/usr/local/bin:/usr/bin:/bin
 ExecStart=$NPX_BIN tsx src/worker.ts
 Restart=always
 RestartSec=5
@@ -517,14 +519,16 @@ resource "aws_instance" "gateway" {
 
   user_data = <<-EOF
     #!/bin/bash
-    set -e
+    set -euxo pipefail
+    exec > /var/log/user-data.log 2>&1
 
     ENGINE_IP="${aws_instance.engine.private_ip}"
 
     # Install Nginx
     dnf install -y nginx
 
-    # Write Nginx config
+    # Write Nginx config — heredoc unquoted so $ENGINE_IP expands from bash var
+    # nginx variables like $host are escaped with \$ to survive bash expansion
     cat > /etc/nginx/conf.d/iii.conf <<NGINX
 server {
     listen 80;
@@ -545,7 +549,7 @@ server {
 }
 NGINX
 
-    # Remove default nginx config
+    # Remove default nginx config to avoid conflicts
     rm -f /etc/nginx/conf.d/default.conf
 
     systemctl enable --now nginx
@@ -554,9 +558,10 @@ NGINX
   tags = merge(local.common_tags, { Name = "${var.project}-gateway", Role = "api-gateway" })
 }
 
-# Elastic IP for gateway
+# Elastic IP for gateway (stable public address)
 resource "aws_eip" "gateway" {
-  instance = aws_instance.gateway.id
-  domain   = "vpc"
-  tags     = merge(local.common_tags, { Name = "${var.project}-gateway-eip" })
+  instance   = aws_instance.gateway.id
+  domain     = "vpc"
+  depends_on = [aws_internet_gateway.igw]
+  tags       = merge(local.common_tags, { Name = "${var.project}-gateway-eip" })
 }
